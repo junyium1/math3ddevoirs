@@ -1,0 +1,9 @@
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -I./include
+    - -I./vendor/imgui
+    - -I./vendor/imgui/backends
+    - -DGLEW_STATIC
+    - -Wall
+    - -Wextra
