@@ -1,0 +1,44 @@
+# ── Compilateur portable ──────────────────────────────────────────────────────
+tools/
+
+# ── Librairies téléchargées ───────────────────────────────────────────────────
+vendor/
+libs/
+include/GL/
+include/GLFW/
+include/stb_image.h
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+build/
+scene graphique/build/
+
+# ── Textures ──────────────────────────────────────────────────────────────────
+scene graphique/textures/
+
+# ── Fichiers compilés ─────────────────────────────────────────────────────────
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.zip
+*.xz
+
+# Visual Studio
+.vs/
+out/
+build/
+*.user
+*.sln
+*.vcxproj
+*.filters
+
+# Binaires
+bin/
+obj/
+*.exe
+*.o
+*.obj
+*.pdb
+
+# ImGui & Temps
+imgui.ini

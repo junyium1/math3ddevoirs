@@ -16,7 +16,6 @@ static const int EDGES[12][2] = {
     {0,4},{1,5},{2,6},{3,7}
 };
 
-// ── Caméra orbite ─────────────────────────────────────────────────────────────
 struct Camera {
     float yaw   =  0.6f;
     float pitch =  0.4f;
@@ -26,39 +25,24 @@ struct Camera {
     float panZ  =  0.0f;
 };
 
-// Projette un point 3D en coordonnées écran sur le canvas.
-// Retourne false si le point est derrière la caméra.
 static bool projectCam(const Vector3& p, const Camera& cam,
                        ImVec2 cPos, ImVec2 cSize, ImVec2& out)
 {
     float cp = cosf(cam.pitch), sp = sinf(cam.pitch);
     float cy = cosf(cam.yaw),   sy = sinf(cam.yaw);
-
-    // Position de l'oeil
     float ex = cam.panX + cam.dist * cp * sy;
     float ey = cam.panY + cam.dist * sp;
     float ez = cam.panZ + cam.dist * cp * cy;
-
-    // Vecteur d -> point vu depuis l'oeil
     float dx = p.x - ex, dy = p.y - ey, dz = p.z - ez;
-
-    // Passage en espace vue (base : right, up, forward)
-    // right   = (cy,       0,       -sy)
-    // up      = (-sy*sp,   cp,      -cy*sp)
-    // forward = (-cp*sy,  -sp,      -cp*cy)
     float vx =  cy*dx                      - sy*dz;
     float vy = -sy*sp*dx  + cp*dy  - cy*sp*dz;
-    float vz = -cp*sy*dx  - sp*dy  - cp*cy*dz; // profondeur positive = devant
-
+    float vz = -cp*sy*dx  - sp*dy  - cp*cy*dz;
     if (vz <= 0.01f) return false;
-
     float fov    = 60.0f * 3.14159265f / 180.0f;
     float f      = 1.0f / tanf(fov * 0.5f);
     float aspect = cSize.x / cSize.y;
-
     float nx = (vx / vz) * f / aspect;
     float ny = (vy / vz) * f;
-
     out = ImVec2(cPos.x + cSize.x * (0.5f + nx * 0.5f),
                  cPos.y + cSize.y * (0.5f - ny * 0.5f));
     return true;
@@ -103,8 +87,33 @@ int main()
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
-    ImGui::GetIO().Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 32.0f);
+
+    // Style debug jeu
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding  = 0.0f;
+    style.FrameRounding   = 2.0f;
+    style.GrabRounding    = 2.0f;
+    style.WindowBorderSize = 0.0f;
+
+    ImVec4* c = style.Colors;
+    c[ImGuiCol_WindowBg]          = {0.08f, 0.08f, 0.10f, 1.00f};
+    c[ImGuiCol_FrameBg]           = {0.12f, 0.14f, 0.16f, 1.00f};
+    c[ImGuiCol_FrameBgHovered]    = {0.16f, 0.19f, 0.22f, 1.00f};
+    c[ImGuiCol_SliderGrab]        = {0.16f, 0.70f, 0.34f, 1.00f};
+    c[ImGuiCol_SliderGrabActive]  = {0.20f, 0.90f, 0.44f, 1.00f};
+    c[ImGuiCol_CheckMark]         = {0.18f, 0.82f, 0.38f, 1.00f};
+    c[ImGuiCol_Button]            = {0.12f, 0.40f, 0.20f, 0.80f};
+    c[ImGuiCol_ButtonHovered]     = {0.16f, 0.54f, 0.26f, 1.00f};
+    c[ImGuiCol_Header]            = {0.12f, 0.40f, 0.20f, 0.80f};
+    c[ImGuiCol_HeaderHovered]     = {0.16f, 0.54f, 0.26f, 1.00f};
+    c[ImGuiCol_TitleBgActive]     = {0.08f, 0.28f, 0.14f, 1.00f};
+    c[ImGuiCol_Text]              = {0.82f, 0.90f, 0.82f, 1.00f};
+    c[ImGuiCol_TextDisabled]      = {0.36f, 0.44f, 0.36f, 1.00f};
+    c[ImGuiCol_Separator]         = {0.14f, 0.44f, 0.20f, 0.60f};
+
+    ImGui::GetIO().Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\consola.ttf", 28.0f);
     ImGui::GetStyle().ScaleAllSizes(2.0f);
+
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -114,9 +123,9 @@ int main()
     float  angle2    = 0.0f;
     float  pt[3]     = {1, 0, 0};
     float  pivot[3]  = {2, 0, 0};
-    float  sc[3]     = {1, 1, 1};       // scale
-    float  tr[3]     = {0, 0, 0};       // translation
-    float  shear[6]  = {0,0,0,0,0,0};  // hxy,hxz,hyx,hyz,hzx,hzy
+    float  sc[3]     = {1, 1, 1};
+    float  tr[3]     = {0, 0, 0};
+    float  shear[6]  = {0,0,0,0,0,0};
     bool   animate   = false;
     bool   useCompose  = true;
     bool   useScale    = false;
@@ -136,7 +145,7 @@ int main()
 
         Quaternion q1  = makeRotation(axis[0],  axis[1],  axis[2],  angle);
         Quaternion q2  = makeRotation(axis2[0], axis2[1], axis2[2], angle2);
-        Quaternion qC  = q1 * q2;   // composée : q2 d'abord, puis q1
+        Quaternion qC  = q1 * q2;
         Matrix3    R   = q1.toRotationMatrix();
 
         Vector3    v(pt[0], pt[1], pt[2]);
@@ -147,7 +156,6 @@ int main()
         float dx = rQ.x-rM.x, dy = rQ.y-rM.y, dz = rQ.z-rM.z;
         float err = sqrtf(dx*dx + dy*dy + dz*dz);
 
-        // Transformée complète : scale → rotation composée → shear → translate
         auto applyAll = [&](Vector3 p) {
             if (useScale)     p = applyScale(p, sc[0], sc[1], sc[2]);
             if (useCompose)   p = rotateByQuaternion(p, qC);
@@ -243,13 +251,13 @@ int main()
         ImGui::SliderFloat("hyz", &shear[3], -2.0f, 2.0f);
 
         ImGui::SeparatorText("Operations");
-        ImGui::TextDisabled("Matrice R*v       :  9 mult +  6 add");
-        ImGui::TextDisabled("Quaternion q*p*q* : 28 mult + 21 add");
-        ImGui::TextDisabled("Composer rotations: 16 mult (quat) vs 27 (mat)");
+        ImGui::TextDisabled("R*v       :  9 mult +  6 add");
+        ImGui::TextDisabled("q*p*q*    : 28 mult + 21 add");
+        ImGui::TextDisabled("Composer  : 16 mult (quat) vs 27 (mat)");
 
         ImGui::End();
 
-        // ── Panneau droit : viewport 3D interactif ────────────────────────
+        // ── Panneau droit : viewport 3D ───────────────────────────────────
         ImGui::SetNextWindowPos({leftW, 0});
         ImGui::SetNextWindowSize({W - leftW, H});
         ImGui::Begin("Viewport 3D", nullptr, PINNED | ImGuiWindowFlags_NoScrollbar);
@@ -257,7 +265,6 @@ int main()
         ImVec2 cPos  = ImGui::GetCursorScreenPos();
         ImVec2 cSize = ImGui::GetContentRegionAvail();
 
-        // Bouton invisible qui capture la souris
         ImGui::InvisibleButton("vp", cSize,
             ImGuiButtonFlags_MouseButtonLeft  |
             ImGuiButtonFlags_MouseButtonRight |
@@ -266,34 +273,68 @@ int main()
         bool hovered = ImGui::IsItemHovered();
         bool active  = ImGui::IsItemActive();
 
-        // Zoom (scroll)
         if (hovered && io.MouseWheel != 0.0f)
             cam.dist = fmaxf(1.0f, cam.dist * powf(0.88f, io.MouseWheel));
 
         if (active) {
-            float cp = cosf(cam.pitch), sp = sinf(cam.pitch);
-            float cy = cosf(cam.yaw),   sy = sinf(cam.yaw);
-
-            // Clic gauche → orbite
             if (ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                 cam.yaw   -= io.MouseDelta.x * 0.006f;
                 cam.pitch += io.MouseDelta.y * 0.006f;
                 cam.pitch  = fmaxf(-1.4f, fminf(1.4f, cam.pitch));
             }
-            // Clic droit → pan (dans le plan right/up de la caméra)
             if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
                 float s = cam.dist * 0.0015f;
+                float cp = cosf(cam.pitch), sp = sinf(cam.pitch);
+                float cy = cosf(cam.yaw),   sy = sinf(cam.yaw);
                 cam.panX -= ( cy * io.MouseDelta.x - (-sy*sp) * io.MouseDelta.y) * s;
                 cam.panY -= (                          cp      * io.MouseDelta.y) * s;
                 cam.panZ -= ((-sy)* io.MouseDelta.x - (-cy*sp)* io.MouseDelta.y) * s;
             }
         }
 
-        // ── Dessin ───────────────────────────────────────────────────────
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(cPos, {cPos.x+cSize.x, cPos.y+cSize.y}, IM_COL32(18,18,28,255));
+        // Fond dégradé nuit
+        dl->AddRectFilledMultiColor(
+            cPos, {cPos.x+cSize.x, cPos.y+cSize.y},
+            IM_COL32( 8, 10, 22, 255),  // haut-gauche
+            IM_COL32( 8, 10, 22, 255),  // haut-droite
+            IM_COL32(18, 14, 35, 255),  // bas-droite
+            IM_COL32(18, 14, 35, 255)); // bas-gauche
 
-        // Axes du monde
+        // Étoiles 3D — directions fixes sur la sphère, projetées avec la caméra
+        static struct { Vector3 dir; float b; } stars[220];
+        static bool starsInit = false;
+        if (!starsInit) {
+            starsInit = true;
+            unsigned int seed = 12345;
+            auto rng  = [&]{ seed ^= seed<<13; seed ^= seed>>17; seed ^= seed<<5; return seed; };
+            auto rngf = [&]{ return (rng() % 10000) / 10000.0f; };
+            for (auto& s : stars) {
+                float theta = rngf() * 6.2832f;
+                float phi   = acosf(2.0f * rngf() - 1.0f);
+                s.dir = { sinf(phi)*cosf(theta), sinf(phi)*sinf(theta), cosf(phi) };
+                s.b   = (float)(80 + rng() % 176);
+            }
+        }
+        // Position de l'oeil pour ancrer les étoiles à la caméra (pas au monde)
+        {
+            float cp = cosf(cam.pitch), sp = sinf(cam.pitch);
+            float cy = cosf(cam.yaw),   sy = sinf(cam.yaw);
+            float ex = cam.panX + cam.dist * cp * sy;
+            float ey = cam.panY + cam.dist * sp;
+            float ez = cam.panZ + cam.dist * cp * cy;
+            const float R = 800.0f;
+            for (auto& s : stars) {
+                Vector3 wp(ex + s.dir.x * R, ey + s.dir.y * R, ez + s.dir.z * R);
+                ImVec2 sp2;
+                if (projectCam(wp, cam, cPos, cSize, sp2)) {
+                    unsigned char b = (unsigned char)s.b;
+                    dl->AddRectFilled({sp2.x, sp2.y}, {sp2.x+2.0f, sp2.y+2.0f},
+                        IM_COL32(b, b, (unsigned char)fminf(b+20.f,255.f), b));
+                }
+            }
+        }
+
         drawLine(dl, {0,0,0}, {3,0,0}, cam, cPos, cSize, IM_COL32(255, 60, 60, 200), 2.0f);
         drawLine(dl, {0,0,0}, {0,3,0}, cam, cPos, cSize, IM_COL32( 60,255, 60, 200), 2.0f);
         drawLine(dl, {0,0,0}, {0,0,3}, cam, cPos, cSize, IM_COL32( 60,120,255, 200), 2.0f);
@@ -301,35 +342,27 @@ int main()
         drawPoint(dl, {0,3,0}, cam, cPos, cSize, IM_COL32( 60,255, 60,255), 4, "Y");
         drawPoint(dl, {0,0,3}, cam, cPos, cSize, IM_COL32( 60,120,255,255), 4, "Z");
 
-        // Cube initial (gris fantome)
         for (auto& e : EDGES)
             drawLine(dl, CUBE[e[0]], CUBE[e[1]], cam, cPos, cSize, IM_COL32(70,70,90,160), 1.0f);
 
-        // Cube rotaté centré (bleu)
-        for (auto& e : EDGES) {
+        for (auto& e : EDGES)
             drawLine(dl,
                 rotateByMatrix(CUBE[e[0]], R),
                 rotateByMatrix(CUBE[e[1]], R),
                 cam, cPos, cSize, IM_COL32(80,160,255,220), 1.8f);
-        }
 
-        // Cube rotaté décentré (orange)
-        for (auto& e : EDGES) {
+        for (auto& e : EDGES)
             drawLine(dl,
                 rotateAround(CUBE[e[0]], piv, q1),
                 rotateAround(CUBE[e[1]], piv, q1),
                 cam, cPos, cSize, IM_COL32(255,140,30,200), 1.5f);
-        }
 
-        // Cube avec toutes les transformations f) (vert)
-        for (auto& e : EDGES) {
+        for (auto& e : EDGES)
             drawLine(dl,
                 applyAll(CUBE[e[0]]),
                 applyAll(CUBE[e[1]]),
                 cam, cPos, cSize, IM_COL32(80,255,120,230), 2.0f);
-        }
 
-        // Pivot (croix jaune)
         {
             ImVec2 pp;
             if (projectCam(piv, cam, cPos, cSize, pp)) {
@@ -339,14 +372,10 @@ int main()
             }
         }
 
-        // Point v original (vert)
         drawPoint(dl, v,    cam, cPos, cSize, IM_COL32( 80,255, 80,255), 7, "v");
-        // v' rotation centrée (bleu clair)
         drawPoint(dl, rM,   cam, cPos, cSize, IM_COL32(120,200,255,255), 7, "v' (centree)");
-        // v' rotation décentrée (orange)
         drawPoint(dl, rDec, cam, cPos, cSize, IM_COL32(255,160, 40,255), 7, "v' (decentree)");
 
-        // Legende
         float lx = cPos.x + 12, ly = cPos.y + 12;
         auto legend = [&](ImU32 col, const char* text) {
             dl->AddRectFilled({lx,ly+2},{lx+18,ly+14}, col);
@@ -356,16 +385,14 @@ int main()
         legend(IM_COL32(70,70,90,200),   "position initiale");
         legend(IM_COL32(80,160,255,220), "rotation q1 centree");
         legend(IM_COL32(255,140,30,200), "rotation q1 decentree pivot");
-        legend(IM_COL32(80,255,120,230), "f) toutes transformations (vert)");
+        legend(IM_COL32(80,255,120,230), "f) toutes transformations");
 
-        // Hint
         dl->AddText({cPos.x+12, cPos.y+cSize.y-22},
             IM_COL32(120,120,120,200),
             "clic gauche: orbite  |  clic droit: pan  |  scroll: zoom");
 
         ImGui::End();
 
-        // ── Render ───────────────────────────────────────────────────────
         ImGui::Render();
         int fw, fh;
         glfwGetFramebufferSize(window, &fw, &fh);
