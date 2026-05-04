@@ -12,9 +12,6 @@ include/stb_image.h
 build/
 scene graphique/build/
 
-# ── Textures ──────────────────────────────────────────────────────────────────
-scene graphique/textures/
-
 # ── Fichiers compilés ─────────────────────────────────────────────────────────
 *.exe
 *.obj
