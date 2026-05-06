@@ -6,16 +6,19 @@
 #include <cmath>
 #include "azizmath.h"
 
+// Sommets du cube unitaire centré sur l'origine (coordonnées ±1)
 static const Vector3 CUBE[8] = {
     {-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1},
     {-1,-1, 1},{1,-1, 1},{1,1, 1},{-1,1, 1}
 };
+// Paires d'indices définissant les 12 arêtes du cube
 static const int EDGES[12][2] = {
     {0,1},{1,2},{2,3},{3,0},
     {4,5},{5,6},{6,7},{7,4},
     {0,4},{1,5},{2,6},{3,7}
 };
 
+// État de la caméra orbitale : tourne autour d'un point, avec pan et zoom
 struct Camera {
     float yaw   =  0.6f;
     float pitch =  0.4f;
@@ -25,6 +28,8 @@ struct Camera {
     float panZ  =  0.0f;
 };
 
+// Projette un point 3D vers l'écran 2D en coordonnées ImGui (perspective 60°)
+// Retourne false si le point est derrière la caméra (z <= 0)
 static bool projectCam(const Vector3& p, const Camera& cam,
                        ImVec2 cPos, ImVec2 cSize, ImVec2& out)
 {
@@ -48,6 +53,7 @@ static bool projectCam(const Vector3& p, const Camera& cam,
     return true;
 }
 
+// Trace un segment 3D dans le viewport ImGui après projection des deux extrémités
 static void drawLine(ImDrawList* dl, const Vector3& a, const Vector3& b,
                      const Camera& cam, ImVec2 cPos, ImVec2 cSize,
                      ImU32 col, float thickness = 1.5f)
@@ -58,6 +64,7 @@ static void drawLine(ImDrawList* dl, const Vector3& a, const Vector3& b,
         dl->AddLine(pa, pb, col, thickness);
 }
 
+// Dessine un point 3D projeté sous forme de disque, avec étiquette texte optionnelle
 static void drawPoint(ImDrawList* dl, const Vector3& p, const Camera& cam,
                       ImVec2 cPos, ImVec2 cSize,
                       ImU32 col, float r, const char* label = nullptr)
@@ -69,6 +76,7 @@ static void drawPoint(ImDrawList* dl, const Vector3& p, const Camera& cam,
         dl->AddText(ImVec2(sp.x + r + 4, sp.y - 8), col, label);
 }
 
+// Callback GLFW : affiche les erreurs de la fenêtre/contexte sur stderr
 static void glfw_error(int e, const char* d) { fprintf(stderr, "GLFW %d: %s\n", e, d); }
 
 int main()
@@ -88,7 +96,7 @@ int main()
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
 
-    // Style debug jeu
+    // Thème sombre vert-terminal pour le panneau de contrôle
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding  = 0.0f;
     style.FrameRounding   = 2.0f;
@@ -117,6 +125,7 @@ int main()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
+    // État des contrôles UI : axe, angle, point, pivot, transformations affines
     float  axis[3]   = {0, 1, 0};
     float  angle     = 0.0f;
     float  axis2[3]  = {1, 0, 0};
@@ -140,22 +149,27 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // Rotation automatique : angle = temps courant modulo 2π
         if (animate)
             angle = fmodf((float)glfwGetTime(), 2.0f * 3.14159265f);
 
-        Quaternion q1  = makeRotation(axis[0],  axis[1],  axis[2],  angle);
-        Quaternion q2  = makeRotation(axis2[0], axis2[1], axis2[2], angle2);
-        Quaternion qC  = q1 * q2;
-        Matrix3    R   = q1.toRotationMatrix();
+        // Construction des quaternions et matrices pour ce frame
+        Quaternion q1  = makeRotation(axis[0],  axis[1],  axis[2],  angle);  // rotation principale
+        Quaternion q2  = makeRotation(axis2[0], axis2[1], axis2[2], angle2); // rotation secondaire
+        Quaternion qC  = q1 * q2;     // composition : q2 d'abord, puis q1
+        Matrix3    R   = q1.toRotationMatrix(); // matrice équivalente à q1
 
+        // Application des rotations sur le point v
         Vector3    v(pt[0], pt[1], pt[2]);
         Vector3    piv(pivot[0], pivot[1], pivot[2]);
-        Vector3    rQ   = rotateByQuaternion(v, q1);
-        Vector3    rM   = rotateByMatrix(v, R);
-        Vector3    rDec = rotateAround(v, piv, q1);
+        Vector3    rQ   = rotateByQuaternion(v, q1); // via quaternion
+        Vector3    rM   = rotateByMatrix(v, R);       // via matrice (doit être identique)
+        Vector3    rDec = rotateAround(v, piv, q1);  // rotation décentrée
+        // Erreur numérique entre les deux méthodes (doit tendre vers 0)
         float dx = rQ.x-rM.x, dy = rQ.y-rM.y, dz = rQ.z-rM.z;
         float err = sqrtf(dx*dx + dy*dy + dz*dz);
 
+        // Chaîne de transformations affines appliquées dans l'ordre : scale → rotation → shear → translate
         auto applyAll = [&](Vector3 p) {
             if (useScale)     p = applyScale(p, sc[0], sc[1], sc[2]);
             if (useCompose)   p = rotateByQuaternion(p, qC);
@@ -265,6 +279,7 @@ int main()
         ImVec2 cPos  = ImGui::GetCursorScreenPos();
         ImVec2 cSize = ImGui::GetContentRegionAvail();
 
+        // Zone de capture de la souris (scroll, drag) superposée au viewport
         ImGui::InvisibleButton("vp", cSize,
             ImGuiButtonFlags_MouseButtonLeft  |
             ImGuiButtonFlags_MouseButtonRight |
@@ -301,7 +316,7 @@ int main()
             IM_COL32(18, 14, 35, 255),  // bas-droite
             IM_COL32(18, 14, 35, 255)); // bas-gauche
 
-        // Étoiles 3D — directions fixes sur la sphère, projetées avec la caméra
+        // Étoiles : directions fixées en sphère, initialisées une seule fois (pseudo-aléatoire XOR-shift)
         static struct { Vector3 dir; float b; } stars[220];
         static bool starsInit = false;
         if (!starsInit) {
@@ -311,12 +326,12 @@ int main()
             auto rngf = [&]{ return (rng() % 10000) / 10000.0f; };
             for (auto& s : stars) {
                 float theta = rngf() * 6.2832f;
-                float phi   = acosf(2.0f * rngf() - 1.0f);
+                float phi   = acosf(2.0f * rngf() - 1.0f); // distribution uniforme sur sphère
                 s.dir = { sinf(phi)*cosf(theta), sinf(phi)*sinf(theta), cosf(phi) };
-                s.b   = (float)(80 + rng() % 176);
+                s.b   = (float)(80 + rng() % 176); // luminosité aléatoire
             }
         }
-        // Position de l'oeil pour ancrer les étoiles à la caméra (pas au monde)
+        // Les étoiles sont placées à grande distance de l'oeil (R=800) pour suivre la caméra
         {
             float cp = cosf(cam.pitch), sp = sinf(cam.pitch);
             float cy = cosf(cam.yaw),   sy = sinf(cam.yaw);
@@ -335,6 +350,7 @@ int main()
             }
         }
 
+        // Axes X(rouge) Y(vert) Z(bleu) de longueur 3
         drawLine(dl, {0,0,0}, {3,0,0}, cam, cPos, cSize, IM_COL32(255, 60, 60, 200), 2.0f);
         drawLine(dl, {0,0,0}, {0,3,0}, cam, cPos, cSize, IM_COL32( 60,255, 60, 200), 2.0f);
         drawLine(dl, {0,0,0}, {0,0,3}, cam, cPos, cSize, IM_COL32( 60,120,255, 200), 2.0f);
@@ -342,21 +358,25 @@ int main()
         drawPoint(dl, {0,3,0}, cam, cPos, cSize, IM_COL32( 60,255, 60,255), 4, "Y");
         drawPoint(dl, {0,0,3}, cam, cPos, cSize, IM_COL32( 60,120,255,255), 4, "Z");
 
+        // Cube original (gris sombre)
         for (auto& e : EDGES)
             drawLine(dl, CUBE[e[0]], CUBE[e[1]], cam, cPos, cSize, IM_COL32(70,70,90,160), 1.0f);
 
+        // Cube après rotation q1 centrée (bleu)
         for (auto& e : EDGES)
             drawLine(dl,
                 rotateByMatrix(CUBE[e[0]], R),
                 rotateByMatrix(CUBE[e[1]], R),
                 cam, cPos, cSize, IM_COL32(80,160,255,220), 1.8f);
 
+        // Cube après rotation q1 décentrée autour du pivot (orange)
         for (auto& e : EDGES)
             drawLine(dl,
                 rotateAround(CUBE[e[0]], piv, q1),
                 rotateAround(CUBE[e[1]], piv, q1),
                 cam, cPos, cSize, IM_COL32(255,140,30,200), 1.5f);
 
+        // Cube avec toutes les transformations activées (vert)
         for (auto& e : EDGES)
             drawLine(dl,
                 applyAll(CUBE[e[0]]),

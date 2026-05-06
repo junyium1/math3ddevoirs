@@ -1,41 +1,38 @@
-# ── Compilateur portable ──────────────────────────────────────────────────────
+# ── Dépendances téléchargées (setup.ps1) ─────────────────────────────────────
 tools/
-
-# ── Librairies téléchargées ───────────────────────────────────────────────────
 vendor/
 libs/
 include/GL/
 include/GLFW/
 include/stb_image.h
 
-# ── Build ─────────────────────────────────────────────────────────────────────
+# ── Sorties de compilation ────────────────────────────────────────────────────
 build/
 scene graphique/build/
+bin/
+obj/
+out/
 
-# ── Fichiers compilés ─────────────────────────────────────────────────────────
-*.exe
+# ── Artefacts compilateur ─────────────────────────────────────────────────────
 *.obj
+*.o
 *.pdb
 *.ilk
+*.lib
+*.exp
+
+# ── Archives ──────────────────────────────────────────────────────────────────
 *.zip
 *.xz
+*.tar.gz
+*.7z
 
-# Visual Studio
+# ── Visual Studio ─────────────────────────────────────────────────────────────
 .vs/
-out/
-build/
 *.user
 *.sln
 *.vcxproj
-*.filters
+*.vcxproj.filters
 
-# Binaires
-bin/
-obj/
-*.exe
-*.o
-*.obj
-*.pdb
-
-# ImGui & Temps
+# ── Runtime / divers ──────────────────────────────────────────────────────────
 imgui.ini

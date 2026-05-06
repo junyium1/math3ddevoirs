@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Dossiers ──────────────────────────────────────────────────────────────────
 Write-Host "[setup] Creating directories..."
-foreach ($d in @('src','vendor','include','libs','build','tools')) {
+foreach ($d in @('src','vendor','include','libs','build','tools','scene graphique\build')) {
     New-Item -ItemType Directory -Force -Path $d | Out-Null
 }
 
@@ -11,7 +11,7 @@ foreach ($d in @('src','vendor','include','libs','build','tools')) {
 if (Test-Path 'tools\clang\bin\clang++.exe') {
     Write-Host "[setup] Clang deja present dans tools\clang\"
 } else {
-    $llvmVer = "22.1.4"
+    $llvmVer = "19.1.7"
     $llvmTar = "clang+llvm-$llvmVer-x86_64-pc-windows-msvc.tar.xz"
     Write-Host "[setup] Downloading LLVM $llvmVer (~300MB)..."
     Start-BitsTransfer -Source "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvmVer/$llvmTar" -Destination "tools\$llvmTar"

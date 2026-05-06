@@ -1,21 +1,33 @@
-$clang = if     (Test-Path ".\tools\clang\bin\clang++.exe")             { ".\tools\clang\bin\clang++.exe" }
-         elseif (Test-Path "C:\Program Files\LLVM\bin\clang++.exe")    { "C:\Program Files\LLVM\bin\clang++.exe" }
-         else   { "clang++" }
+$ErrorActionPreference = 'Stop'
 
+# ── Mode debug / release ──────────────────────────────────────────────────────
 if ($args[0] -eq "debug") {
     Write-Host "[build] mode: debug"
-    $opt = @("-O0", "-g")
+    $opt = @("/Od", "/Zi")
 } else {
     Write-Host "[build] mode: release"
-    $opt = @("-O2")
+    $opt = @("/O2")
 }
 
-# ── Chemins MSVC + Windows SDK détectés automatiquement ───────────────────────
-$msvcRoot = "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC"
-$msvcVer  = (Get-ChildItem $msvcRoot | Sort-Object Name -Descending | Select-Object -First 1).Name
-$msvcInc  = "$msvcRoot\$msvcVer\include"
-$msvcLib  = "$msvcRoot\$msvcVer\lib\x64"
+# ── Détection MSVC ────────────────────────────────────────────────────────────
+$msvcRoot = $null
+foreach ($vsBase in @(
+    "C:\Program Files\Microsoft Visual Studio\18\Insiders",
+    "C:\Program Files\Microsoft Visual Studio\2022\Community",
+    "C:\Program Files\Microsoft Visual Studio\2022\Professional",
+    "C:\Program Files\Microsoft Visual Studio\2022\Enterprise"
+)) {
+    $candidate = "$vsBase\VC\Tools\MSVC"
+    if (Test-Path $candidate) { $msvcRoot = $candidate; break }
+}
+if (-not $msvcRoot) { Write-Host "[build] ERREUR: MSVC introuvable"; exit 1 }
 
+$msvcVer = (Get-ChildItem $msvcRoot | Sort-Object Name -Descending | Select-Object -First 1).Name
+$msvcInc = "$msvcRoot\$msvcVer\include"
+$msvcLib = "$msvcRoot\$msvcVer\lib\x64"
+$cl      = "$msvcRoot\$msvcVer\bin\Hostx64\x64\cl.exe"
+
+# ── Détection Windows SDK ─────────────────────────────────────────────────────
 $sdkIncRoot = "C:\Program Files (x86)\Windows Kits\10\Include"
 $sdkVer     = (Get-ChildItem $sdkIncRoot | Sort-Object Name -Descending | Select-Object -First 1).Name
 $ucrtInc    = "$sdkIncRoot\$sdkVer\ucrt"
@@ -27,17 +39,10 @@ $sdkLibVer  = (Get-ChildItem $sdkLibRoot | Sort-Object Name -Descending | Select
 $ucrtLib    = "$sdkLibRoot\$sdkLibVer\ucrt\x64"
 $umLib      = "$sdkLibRoot\$sdkLibVer\um\x64"
 
-# ── Compilation ───────────────────────────────────────────────────────────────
-$includes = @(
-    "-I",       "include",
-    "-I",       "vendor\imgui",
-    "-I",       "vendor\imgui\backends",
-    "-isystem", $msvcInc,
-    "-isystem", $ucrtInc,
-    "-isystem", $umInc,
-    "-isystem", $sharedInc
-)
+# ── Dossier build ─────────────────────────────────────────────────────────────
+New-Item -ItemType Directory -Force -Path "build" | Out-Null
 
+# ── Sources ───────────────────────────────────────────────────────────────────
 $sources = @(
     "src\main.cpp",
     "include\azizmath.cpp",
@@ -49,15 +54,34 @@ $sources = @(
     "vendor\imgui\backends\imgui_impl_opengl3.cpp"
 )
 
-$libs = @(
-    "libs\glfw3.lib",
-    "-L", $msvcLib,
-    "-L", $ucrtLib,
-    "-L", $umLib,
-    "-lopengl32", "-lgdi32", "-luser32", "-lshell32"
+# ── Compilation ───────────────────────────────────────────────────────────────
+$includes = @(
+    "/I", "include",
+    "/I", "vendor\imgui",
+    "/I", "vendor\imgui\backends",
+    "/I", $msvcInc,
+    "/I", $ucrtInc,
+    "/I", $umInc,
+    "/I", $sharedInc
 )
 
-& $clang -std=c++17 @opt -Wall -Wextra -DIMGUI_DISABLE_SSE @includes @sources @libs -o build\main.exe
+$libs = @(
+    "libs\glfw3.lib",
+    "opengl32.lib",
+    "gdi32.lib",
+    "user32.lib",
+    "shell32.lib",
+    "/LIBPATH:$msvcLib",
+    "/LIBPATH:$ucrtLib",
+    "/LIBPATH:$umLib"
+)
+
+$defines = @("/DIMGUI_DISABLE_SSE", "/D_CRT_SECURE_NO_WARNINGS")
+
+Write-Host "[build] Compilation avec cl.exe (MSVC $msvcVer)..."
+& $cl /std:c++17 @opt /MD /W3 /EHsc @defines @includes @sources /Fe:build\main.exe /Fo:build\ /link @libs
 
 if ($LASTEXITCODE -ne 0) { Write-Host "[build] FAILED"; exit 1 }
 Write-Host "[build] OK -- build\main.exe"
+Write-Host "[build] Lancement de build\main.exe ..."
+Start-Process -FilePath ".\build\main.exe"

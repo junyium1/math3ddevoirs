@@ -1,5 +1,5 @@
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_SIMD
+#define STB_IMAGE_IMPLEMENTATION // active l'implémentation unique de stb_image
+#define STBI_NO_SIMD              // désactive les instructions SIMD (compatibilité MSVC)
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include "azizmath.h"
@@ -14,10 +14,10 @@
 #include <sstream>
 #include <string>
 
-// Mat4 GL
+// Matrice 4x4 colonne-major pour OpenGL (layout natif de glUniformMatrix4fv)
 struct Mat4 { float m[16] = {}; };
 
-// View
+// Construit la matrice vue (caméra orbitale) : base orthonormée (right, up, -forward) + translation
 static Mat4 lookAt(Vector3 eye, Vector3 center) {
     Vector3 f(center.x - eye.x, center.y - eye.y, center.z - eye.z);
     float fl = sqrtf(f.dot(f)); f = Vector3(f.x / fl, f.y / fl, f.z / fl);
@@ -32,7 +32,8 @@ static Mat4 lookAt(Vector3 eye, Vector3 center) {
     return m;
 }
 
-// Proj
+// Matrice de projection perspective : transforme le frustum en cube NDC [-1,1]
+// fov en radians, near/far = plans de clipping
 static Mat4 perspective(float fov, float aspect, float near, float far) {
     float f = 1.f / tanf(fov * 0.5f);
     Mat4 r;
@@ -42,7 +43,7 @@ static Mat4 perspective(float fov, float aspect, float near, float far) {
     return r;
 }
 
-// Model
+// Construit la matrice modèle TRS depuis une matrice de rotation 3x3, une translation et un scale uniforme
 static Mat4 makeModel(const Matrix3& R, float tx, float ty, float tz, float s = 1.f) {
     Mat4 m;
     m.m[0] = R.m[0] * s; m.m[4] = R.m[1] * s; m.m[8] = R.m[2] * s; m.m[12] = tx;
@@ -52,14 +53,14 @@ static Mat4 makeModel(const Matrix3& R, float tx, float ty, float tz, float s = 
     return m;
 }
 
-// IO
+// Lit un fichier texte entier et retourne son contenu (utilisé pour charger les shaders GLSL)
 static std::string readFile(const char* path) {
     std::ifstream f(path);
     if (!f) { fprintf(stderr, "Err %s\n", path); return ""; }
     std::ostringstream ss; ss << f.rdbuf(); return ss.str();
 }
 
-// Shader
+// Compile un shader GLSL (vertex ou fragment), affiche les erreurs sur stderr si échec
 static GLuint compileShader(GLenum type, const char* src) {
     GLuint s = glCreateShader(type);
     glShaderSource(s, 1, &src, nullptr); glCompileShader(s);
@@ -68,7 +69,7 @@ static GLuint compileShader(GLenum type, const char* src) {
     return s;
 }
 
-// Prog
+// Lie vertex + fragment shader en un programme OpenGL, supprime les shaders intermédiaires
 static GLuint loadProgram(const char* vp, const char* fp) {
     std::string vs = readFile(vp), fs = readFile(fp);
     GLuint v = compileShader(GL_VERTEX_SHADER, vs.c_str()), f = compileShader(GL_FRAGMENT_SHADER, fs.c_str());
@@ -78,7 +79,8 @@ static GLuint loadProgram(const char* vp, const char* fp) {
     return p;
 }
 
-// Sphere
+// Génère un UV-sphere (stacks x slices) : positions, normales, coordonnées UV
+// Format entrelacé : [px,py,pz, nx,ny,nz, u,v] par vertex
 static void generateSphere(int stacks, int slices, std::vector<float>& v, std::vector<unsigned>& idx) {
     for (int i = 0; i <= stacks; ++i) {
         float phi = (float)M_PI * i / stacks;
@@ -95,7 +97,8 @@ static void generateSphere(int stacks, int slices, std::vector<float>& v, std::v
         }
 }
 
-// Ring
+// Génère un anneau plat (disque creux) dans le plan XZ entre rayon ri (intérieur) et ro (extérieur)
+// Utilisé pour les anneaux de Saturne et Uranus
 static void generateRing(float ri, float ro, int slices, std::vector<float>& v, std::vector<unsigned>& idx) {
     for (int j = 0; j <= slices; ++j) {
         float theta = 2.f * (float)M_PI * j / slices, ct = cosf(theta), st = sinf(theta), u = (float)j / slices;
@@ -108,7 +111,8 @@ static void generateRing(float ri, float ro, int slices, std::vector<float>& v, 
     }
 }
 
-// GPU upload
+// Upload les données vertex+indices sur le GPU et configure les vertex attribs (pos/normal/uv)
+// Retourne le VAO, écrit vbo et ebo passés par référence
 static GLuint uploadMesh(const std::vector<float>& v, const std::vector<unsigned>& idx, GLuint& vbo, GLuint& ebo) {
     GLuint vao; int stride = 8 * sizeof(float);
     glGenVertexArrays(1, &vao); glGenBuffers(1, &vbo); glGenBuffers(1, &ebo);
@@ -123,9 +127,11 @@ static GLuint uploadMesh(const std::vector<float>& v, const std::vector<unsigned
     return vao;
 }
 
+// VAO/VBO/EBO + nombre d'indices pour un tracé d'orbite en pointillés
 struct OrbitMesh { GLuint vao, vbo, ebo; int count; };
 
-// Path
+// Construit l'orbite en pointillés d'une planète : N points sur un cercle incliné de 'incl' radians
+// Le tracé est généré avec makeRotation (quaternion), conformément au cours
 static OrbitMesh buildOrbit(float radius, float incl, int N) {
     std::vector<float> verts; std::vector<unsigned> idx;
     float si = sinf(incl), ci = cosf(incl);
@@ -150,7 +156,8 @@ static OrbitMesh buildOrbit(float radius, float incl, int N) {
     om.count = (int)idx.size(); return om;
 }
 
-// Tex
+// Charge une image disque (JPG/PNG) via stb_image, la téléverse sur le GPU avec mipmaps
+// Retourne 0 et affiche une erreur si le fichier est introuvable
 static GLuint loadTexture(const char* path) {
     int w, h, ch;
     unsigned char* data = stbi_load(path, &w, &h, &ch, 0);
@@ -164,11 +171,15 @@ static GLuint loadTexture(const char* path) {
     stbi_image_free(data); return tex;
 }
 
+// Variables globales de la caméra orbitale (partagées par les callbacks GLFW)
 static float camYaw = 0.4f, camPitch = 0.5f, camDist = 35.f;
 static double lastX = 0, lastY = 0;
 static bool dragging = false;
+// Callback scroll : zoom en modifiant la distance orbitale (facteur exponentiel)
 static void cbScroll(GLFWwindow*, double, double dy) { camDist = fmaxf(0.1f, camDist * powf(0.88f, (float)dy)); }
+// Callback clic : active/désactive le drag de caméra sur le bouton gauche
 static void cbMouse(GLFWwindow*, int btn, int action, int) { dragging = (btn == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS); }
+// Callback mouvement : met à jour yaw et pitch quand le bouton gauche est enfoncé
 static void cbCursor(GLFWwindow*, double x, double y) {
     if (dragging) { camYaw -= (float)(x - lastX) * 0.005f; camPitch += fmaxf(-1.4f, fminf(1.4f, (float)(y - lastY) * 0.005f + camPitch)) - camPitch; }
     lastX = x; lastY = y;
@@ -190,18 +201,18 @@ int main() {
     ImGui::CreateContext(); ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(win, true); ImGui_ImplOpenGL3_Init("#version 330");
 
-    GLuint prog = loadProgram("../shaders/shader.vert", "../shaders/shader.frag");
+    GLuint prog = loadProgram("shaders/shader.vert", "shaders/shader.frag");
 
-    GLuint texSun = loadTexture("../textures/2k_sun.jpg");
+    GLuint texSun = loadTexture("textures/2k_sun.jpg");
     GLuint texPlanets[8] = {
-        loadTexture("../textures/2k_mercury.jpg"), loadTexture("../textures/2k_venus.jpg"),
-        loadTexture("../textures/2k_earth.jpg"),   loadTexture("../textures/2k_mars.jpg"),
-        loadTexture("../textures/2k_jupiter.jpg"), loadTexture("../textures/2k_saturn.jpg"),
-        loadTexture("../textures/2k_uranus.jpg"),  loadTexture("../textures/2k_neptune.jpg"),
+        loadTexture("textures/2k_mercury.jpg"), loadTexture("textures/2k_venus.jpg"),
+        loadTexture("textures/2k_earth.jpg"),   loadTexture("textures/2k_mars.jpg"),
+        loadTexture("textures/2k_jupiter.jpg"), loadTexture("textures/2k_saturn.jpg"),
+        loadTexture("textures/2k_uranus.jpg"),  loadTexture("textures/2k_neptune.jpg"),
     };
-    GLuint texMoon = loadTexture("../textures/2k_moon.jpg");
-    GLuint texSaturnRing = loadTexture("../textures/saturnrings.jpg");
-    GLuint texUranusRing = loadTexture("../textures/Uranus_rings.png");
+    GLuint texMoon = loadTexture("textures/2k_moon.jpg");
+    GLuint texSaturnRing = loadTexture("textures/saturnrings.jpg");
+    GLuint texUranusRing = loadTexture("textures/Uranus_rings.png");
     GLint locTex = glGetUniformLocation(prog, "uTexture");
 
     std::vector<float> sv, rv; std::vector<unsigned> si, ri;
@@ -215,27 +226,29 @@ int main() {
     GLint locEye = glGetUniformLocation(prog, "uViewPos"), locEmit = glGetUniformLocation(prog, "uEmissive");
     GLint locLightInt = glGetUniformLocation(prog, "uLightIntensity"), locAmbInt = glGetUniformLocation(prog, "uAmbientIntensity");
 
+    // Paramètres orbitaux et physiques de chaque planète
     struct Planet {
-        float orbitRadius, orbitSpeed;
-        float orbInclination; // inclinaison du plan orbital (rad) — axe makeRotation(sin,cos,0,angle)
-        float spinSpeed;
-        float axialTilt;      // inclinaison axiale (rad) — axe de rotation propre
-        float size;
-        float r, g, b;
+        float orbitRadius;    // distance au Soleil (unités de scène)
+        float orbitSpeed;     // vitesse angulaire orbitale (rad/s en temps de scène)
+        float orbInclination; // inclinaison du plan orbital (rad), axe makeRotation(sin,cos,0,angle)
+        float spinSpeed;      // vitesse de rotation propre (rad/s)
+        float axialTilt;      // inclinaison axiale (rad), axe de rotation propre
+        float size;           // rayon visuel de la planète
+        float r, g, b;        // couleur de fallback si texture absente
     };
     // spinSpeed = orbitSpeed * (periode_orbitale / periode_rotation) * facteur_visuel
     // Facteur visuel : Terre = 2.0 rad/s de spin visible (365 rotations/orbite en realite)
     // orbInclination et axialTilt passés à makeRotation() d'azizmath
     Planet planets[] = {
-        // radius  ospd    oinc     spin     atilt     size   r     g     b
+        //  radius  ospd    oinc     spin     atilt    size   r      g      b
         {  3.5f, 4.15f, 0.122f,  0.034f,  0.01f,   0.18f, 0.76f,0.65f,0.58f }, // Mercure  (1.5 rot/orbite)
-        {  5.5f, 1.62f, 0.059f,  0.008f,  3.096f,  0.30f, 0.95f,0.78f,0.42f }, // Venus    (retrograde, 243j/rot)
-        {  7.5f, 1.00f, 0.000f,  2.000f,  0.409f,  0.32f, 0.22f,0.48f,0.90f }, // Terre    (365 rot/orbite)
-        {  9.8f, 0.53f, 0.032f,  1.940f,  0.440f,  0.22f, 0.78f,0.35f,0.18f }, // Mars      (670 rot/orbite)
-        { 13.5f, 0.08f, 0.023f,  4.580f,  0.054f,  0.90f, 0.82f,0.72f,0.56f }, // Jupiter  (10465 rot/orbite)
-        { 17.5f, 0.03f, 0.044f,  3.980f,  0.467f,  0.75f, 0.90f,0.80f,0.58f }, // Saturne  (24232 rot/orbite)
-        { 21.0f, 0.01f, 0.014f,  2.340f,  1.706f,  0.50f, 0.52f,0.80f,0.95f }, // Uranus   (42741 rot/orbite)
-        { 24.0f, 0.006f,0.031f,  2.940f,  0.494f,  0.48f, 0.20f,0.35f,0.85f }, // Neptune  (89689 rot/orbite)
+        {  5.5f, 1.62f, 0.059f,  0.008f,  3.096f,  0.30f, 0.95f,0.78f,0.42f }, // Vénus    (rétrograde)
+        {  7.5f, 1.00f, 0.000f,  2.000f,  0.409f,  0.32f, 0.22f,0.48f,0.90f }, // Terre    (référence)
+        {  9.8f, 0.53f, 0.032f,  1.940f,  0.440f,  0.22f, 0.78f,0.35f,0.18f }, // Mars
+        { 13.5f, 0.08f, 0.023f,  4.580f,  0.054f,  0.90f, 0.82f,0.72f,0.56f }, // Jupiter  (géante gazeuse)
+        { 17.5f, 0.03f, 0.044f,  3.980f,  0.467f,  0.75f, 0.90f,0.80f,0.58f }, // Saturne  (anneaux)
+        { 21.0f, 0.01f, 0.014f,  2.340f,  1.706f,  0.50f, 0.52f,0.80f,0.95f }, // Uranus   (tilt ~98°)
+        { 24.0f, 0.006f,0.031f,  2.940f,  0.494f,  0.48f, 0.20f,0.35f,0.85f }, // Neptune
     };
 
     OrbitMesh orbits[8];
@@ -254,24 +267,25 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         float t = (float)glfwGetTime();
 
-        // Orb pos
+        // Calcul des positions orbitales via quaternion de rotation incliné
+        // q = makeRotation(sin(incl), cos(incl), 0, t*speed) → rotate le vecteur (radius,0,0)
         Vector3 planetPos[8]; Quaternion orbitQ[8];
         for (int i = 0; i < 8; i++) {
             auto& p = planets[i];
             Quaternion q = makeRotation(sinf(p.orbInclination), cosf(p.orbInclination), 0, t * p.orbitSpeed * speedMult);
             orbitQ[i] = q; planetPos[i] = rotateByQuaternion(Vector3(p.orbitRadius, 0, 0), q);
         }
-        // Moon
+        // Lune : orbite autour de la Terre avec une légère inclinaison
         Quaternion qMoonOrbit = makeRotation(0, 1, 0.05f, t * 0.073f * speedMult);
         Vector3 moonPos = applyTranslate(rotateByQuaternion(Vector3(0.7f, 0, 0), qMoonOrbit),
             planetPos[2].x, planetPos[2].y, planetPos[2].z);
 
-        // Cam target
+        // Cible de la caméra : centre du système ou planète sélectionnée
         Vector3 camTarget(0, 0, 0);
         if (selectedPlanet >= 0 && selectedPlanet < 8) camTarget = planetPos[selectedPlanet];
         else if (selectedPlanet == 9)              camTarget = moonPos;
 
-        // Eye pos
+        // Position de l'oeil : quaternion caméra (yaw * pitch) appliqué à (0,0,dist) + target
         Quaternion qCam = makeRotation(0, 1, 0, camYaw) * makeRotation(1, 0, 0, -camPitch);
         Vector3 eye = applyTranslate(rotateByQuaternion(Vector3(0, 0, camDist), qCam),
             camTarget.x, camTarget.y, camTarget.z);
@@ -285,7 +299,7 @@ int main() {
         glUniform1f(locLightInt, 5.5f); glUniform1f(locAmbInt, 0.15f);
         glActiveTexture(GL_TEXTURE0); glUniform1i(locTex, 0); glUniform1i(locUseTex, 1);
 
-        // Sun
+        // Soleil : émissif (pas d'ombrage), tourne sur lui-même à 0.3 rad/s
         glBindVertexArray(sVao);
         {
             Mat4 model = makeModel(makeRotation(0, 1, 0, t * 0.3f).toRotationMatrix(), 0, 0, 0, 1.5f);
@@ -295,7 +309,7 @@ int main() {
         }
         glUniform1i(locEmit, 0);
 
-        // Orbits
+        // Orbites en pointillés (mode GL_LINES) avec matrice identité (référentiel monde)
         {
             Mat4 id; id.m[0] = id.m[5] = id.m[10] = id.m[15] = 1.f;
             glUniformMatrix4fv(locModel, 1, GL_FALSE, id.m);
@@ -304,17 +318,18 @@ int main() {
             glUniform1i(locEmit, 0); glUniform1i(locUseTex, 1); glBindVertexArray(sVao);
         }
 
-        // Planets
+        // Planètes : spinQ = quaternion de rotation propre (axial tilt + spin temp)
+        Quaternion spinQ[8];
         for (int i = 0; i < 8; i++) {
             auto& p = planets[i];
-            Quaternion qSpin = makeRotation(sinf(p.axialTilt), cosf(p.axialTilt), 0, t * p.spinSpeed * speedMult);
-            Mat4 model = makeModel(qSpin.toRotationMatrix(), planetPos[i].x, planetPos[i].y, planetPos[i].z, p.size);
+            spinQ[i] = makeRotation(sinf(p.axialTilt), cosf(p.axialTilt), 0, t * p.spinSpeed * speedMult);
+            Mat4 model = makeModel(spinQ[i].toRotationMatrix(), planetPos[i].x, planetPos[i].y, planetPos[i].z, p.size);
             glUniformMatrix4fv(locModel, 1, GL_FALSE, model.m);
             glBindTexture(GL_TEXTURE_2D, texPlanets[i]);
             glDrawElements(GL_TRIANGLES, (GLsizei)si.size(), GL_UNSIGNED_INT, 0);
         }
 
-        // Moon render
+        // Lune : petite sphère qui orbite autour de la Terre
         {
             Mat4 model = makeModel(makeRotation(0, 1, 0, t * 0.073f * speedMult).toRotationMatrix(), moonPos.x, moonPos.y, moonPos.z, 0.09f);
             glUniformMatrix4fv(locModel, 1, GL_FALSE, model.m);
@@ -322,7 +337,7 @@ int main() {
             glDrawElements(GL_TRIANGLES, (GLsizei)si.size(), GL_UNSIGNED_INT, 0);
         }
 
-        // Rings
+        // Anneaux : Saturne (i=5) et Uranus (i=6) — plan incliné selon l'axial tilt via makeRotation
         for (int i : {6, 5}) {
             float tilt = planets[i].axialTilt;
             Mat4 model = makeModel(makeRotation(0, 0, 1, tilt).toRotationMatrix(), planetPos[i].x, planetPos[i].y, planetPos[i].z, planets[i].size);
@@ -352,6 +367,33 @@ int main() {
             for (int i = 0; i < 8; i++) {
                 if (i % 4 == 0) ImGui::NewLine();
                 if (ImGui::Button(planetNames[i])) { selectedPlanet = i; camDist = closeupDist[i + 1]; } ImGui::SameLine();
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("QUATERNIONS")) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.85f, 0.3f, 1.f));
+            ImGui::TextUnformatted("         a(w)       b(x)       c(y)       d(z)");
+            ImGui::PopStyleColor();
+            for (int i = 0; i < 8; i++) {
+                char label[64]; snprintf(label, sizeof(label), "%s##quat", planetNames[i]);
+                if (ImGui::TreeNode(label)) {
+                    ImGui::TextDisabled("Orbite  ");
+                    ImGui::SameLine();
+                    ImGui::Text("% .4f  % .4f  % .4f  % .4f",
+                        orbitQ[i].a, orbitQ[i].b, orbitQ[i].c, orbitQ[i].d);
+                    ImGui::TextDisabled("Spin    ");
+                    ImGui::SameLine();
+                    ImGui::Text("% .4f  % .4f  % .4f  % .4f",
+                        spinQ[i].a, spinQ[i].b, spinQ[i].c, spinQ[i].d);
+                    ImGui::TreePop();
+                }
+            }
+            if (ImGui::TreeNode("Lune##quat")) {
+                ImGui::TextDisabled("Orbite  ");
+                ImGui::SameLine();
+                ImGui::Text("% .4f  % .4f  % .4f  % .4f",
+                    qMoonOrbit.a, qMoonOrbit.b, qMoonOrbit.c, qMoonOrbit.d);
+                ImGui::TreePop();
             }
         }
         ImGui::End(); ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
