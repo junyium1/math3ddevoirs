@@ -34,3 +34,9 @@ out/
 
 # ── Runtime / divers ──────────────────────────────────────────────────────────
 imgui.ini
+
+# -- Dossier build : ignorer les artefacts, garder l'exe
+scene graphique/build/*.obj
+scene graphique/build/imgui.ini
+scene graphique/build/shaders/
+scene graphique/build/textures/
