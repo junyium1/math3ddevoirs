@@ -7,8 +7,6 @@ include/GLFW/
 include/stb_image.h
 
 # ── Sorties de compilation ────────────────────────────────────────────────────
-build/
-scene graphique/build/
 bin/
 obj/
 out/
